@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import './MainPage.css'
+import locationLogs from './data/locationLogs.js'
+import { analyzeLocationLogs, generateInstagramCaption, generateRecommendations, sendChatMessage } from './services/gemini.js'
+import MapView from './MapView.jsx'
 
 const IconSearch = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -61,7 +64,40 @@ const MOCK_CHAT = [
   { role: 'ai', text: 'Hi! I\'m BTrack AI. Ask me anything about your tracked locations.' },
 ]
 
-const MOCK_CAPTION = `Another day, another adventure tracked 📍\n\n6h 42m of exploring yesterday — from morning walks to late-night strolls. Every step tells a story. Where will BTrack take you today?\n\n#BTrack #ExploreMore #LocationDiary #AdventureAwaits #WalkTheCity`
+function RecCard({ rec, outside }) {
+  return (
+    <div className={`rec-card ${outside ? 'rec-card-outside' : ''}`}>
+      <div className="rec-card-top">
+        <span className={`rec-category ${outside ? 'rec-category-outside' : ''}`}>{rec.category}</span>
+        <span className="rec-vibe">{rec.vibe}</span>
+      </div>
+      <h3 className="rec-name">{rec.name}</h3>
+      <p className="rec-reason">{rec.reason}</p>
+      <div className="rec-best-time">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        {rec.bestTime}
+      </div>
+    </div>
+  )
+}
+
+function renderMarkdown(text) {
+  return text.split('\n').map((line, li) => {
+    const parts = []
+    const re = /(\*\*(.+?)\*\*|\*(.+?)\*)/g
+    let last = 0, match
+    while ((match = re.exec(line)) !== null) {
+      if (match.index > last) parts.push(line.slice(last, match.index))
+      if (match[2]) parts.push(<strong key={match.index}>{match[2]}</strong>)
+      else if (match[3]) parts.push(<em key={match.index}>{match[3]}</em>)
+      last = match.index + match[0].length
+    }
+    if (last < line.length) parts.push(line.slice(last))
+    return <span key={li}>{parts}{li < text.split('\n').length - 1 && <br />}</span>
+  })
+}
 
 const IconHeart = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -95,11 +131,23 @@ const IconClose = () => (
   </svg>
 )
 
-function InstagramModal({ onClose }) {
+function InstagramModal({ onClose, analysis }) {
+  const [caption, setCaption] = useState('')
+  const [captionLoading, setCaptionLoading] = useState(true)
+  const [captionError, setCaptionError] = useState(null)
   const [copied, setCopied] = useState(false)
 
+  useEffect(() => {
+    setCaptionLoading(true)
+    setCaptionError(null)
+    generateInstagramCaption(analysis)
+      .then(setCaption)
+      .catch(e => setCaptionError(e.message))
+      .finally(() => setCaptionLoading(false))
+  }, [])
+
   const handleCopy = () => {
-    navigator.clipboard.writeText(MOCK_CAPTION)
+    navigator.clipboard.writeText(caption)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -157,12 +205,25 @@ function InstagramModal({ onClose }) {
         <div className="ig-caption-block">
           <div className="ig-caption-header">
             <span className="ig-caption-label">AI-generated caption</span>
-            <button className={`ig-copy-btn ${copied ? 'ig-copy-btn-done' : ''}`} onClick={handleCopy}>
-              <IconCopy />
-              {copied ? 'Copied!' : 'Copy'}
-            </button>
+            {!captionLoading && !captionError && (
+              <button className={`ig-copy-btn ${copied ? 'ig-copy-btn-done' : ''}`} onClick={handleCopy} disabled={!caption}>
+                <IconCopy />
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            )}
           </div>
-          <p className="ig-caption">{MOCK_CAPTION}</p>
+          {captionLoading && (
+            <div className="ig-caption-loading">
+              <div className="analysis-spinner" />
+              Generating caption…
+            </div>
+          )}
+          {captionError && (
+            <p className="ig-caption-error">{captionError}</p>
+          )}
+          {!captionLoading && !captionError && (
+            <p className="ig-caption">{caption}</p>
+          )}
         </div>
 
         <div className="ig-date">April 17, 2026</div>
@@ -177,7 +238,15 @@ export default function MainPage({ onLogout }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [chatMessages, setChatMessages] = useState(MOCK_CHAT)
   const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
   const [igOpen, setIgOpen] = useState(false)
+  const [analysis, setAnalysis] = useState(null)
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisError, setAnalysisError] = useState(null)
+  const [analysisTab, setAnalysisTab] = useState('overview')
+  const [recommendations, setRecommendations] = useState(null)
+  const [recsLoading, setRecsLoading] = useState(false)
+  const [recsError, setRecsError] = useState(null)
   const chatEndRef = useRef(null)
 
   const filteredResults = MOCK_RESULTS.filter(r =>
@@ -189,27 +258,51 @@ export default function MainPage({ onLogout }) {
     setPanel(prev => prev === name ? null : name)
   }
 
-  const handleSendChat = (e) => {
+  const handleSendChat = async (e) => {
     e.preventDefault()
-    if (!chatInput.trim()) return
+    if (!chatInput.trim() || chatLoading) return
     const userMsg = { role: 'user', text: chatInput.trim() }
-    setChatMessages(prev => [...prev, userMsg])
+    const updatedMessages = [...chatMessages, userMsg]
+    setChatMessages(updatedMessages)
     setChatInput('')
-    setTimeout(() => {
-      setChatMessages(prev => [...prev, {
-        role: 'ai',
-        text: 'This is a placeholder response. AI integration coming soon!'
-      }])
-    }, 600)
+    setChatLoading(true)
+    try {
+      const reply = await sendChatMessage(updatedMessages, analysis, locationLogs)
+      setChatMessages(prev => [...prev, { role: 'ai', text: reply }])
+    } catch (e) {
+      setChatMessages(prev => [...prev, { role: 'ai', text: `Error: ${e.message}` }])
+    } finally {
+      setChatLoading(false)
+    }
   }
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
 
+  useEffect(() => {
+    if (analysisTab !== 'recommendations' || !analysis || recommendations || recsLoading) return
+    setRecsLoading(true)
+    setRecsError(null)
+    generateRecommendations(analysis)
+      .then(setRecommendations)
+      .catch(e => setRecsError(e.message))
+      .finally(() => setRecsLoading(false))
+  }, [analysisTab, analysis])
+
+  useEffect(() => {
+    if (mainView !== 'analysis' || analysis || analysisLoading) return
+    setAnalysisLoading(true)
+    setAnalysisError(null)
+    analyzeLocationLogs(locationLogs)
+      .then(setAnalysis)
+      .catch(e => setAnalysisError(e.message))
+      .finally(() => setAnalysisLoading(false))
+  }, [mainView])
+
   return (
     <div className="main-layout">
-      {igOpen && <InstagramModal onClose={() => setIgOpen(false)} />}
+      {igOpen && <InstagramModal onClose={() => setIgOpen(false)} analysis={analysis} />}
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-top">
@@ -309,9 +402,14 @@ export default function MainPage({ onLogout }) {
             <div className="chat-messages">
               {chatMessages.map((msg, i) => (
                 <div key={i} className={`chat-bubble ${msg.role === 'ai' ? 'chat-bubble-ai' : 'chat-bubble-user'}`}>
-                  {msg.text}
+                  {msg.role === 'ai' ? renderMarkdown(msg.text) : msg.text}
                 </div>
               ))}
+              {chatLoading && (
+                <div className="chat-bubble chat-bubble-ai chat-bubble-typing">
+                  <span /><span /><span />
+                </div>
+              )}
               <div ref={chatEndRef} />
             </div>
             <form className="chat-input-row" onSubmit={handleSendChat}>
@@ -321,9 +419,10 @@ export default function MainPage({ onLogout }) {
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 autoFocus
+                disabled={chatLoading}
               />
-              <button type="submit" className="chat-send-btn">
-                <IconSend />
+              <button type="submit" className="chat-send-btn" disabled={chatLoading}>
+                {chatLoading ? <div className="chat-send-spinner" /> : <IconSend />}
               </button>
             </form>
           </div>
@@ -333,35 +432,132 @@ export default function MainPage({ onLogout }) {
       {/* Main content */}
       <main className="main-content">
         {mainView === 'map' ? (
-          <div className="map-placeholder" key="map">
-            <div className="map-grid" />
-            <div className="map-roads" />
-            <div className="map-label">
-              <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
-                <circle cx="16" cy="16" r="14" stroke="#CC1111" strokeWidth="2.5" />
-                <circle cx="16" cy="16" r="5" fill="#CC1111" />
-                <path d="M16 4 Q21 10 16 16 Q11 10 16 4Z" fill="#CC1111" opacity="0.45" />
-              </svg>
-              Map view — integration coming soon
-            </div>
-          </div>
+          <MapView key="map" analysis={analysis} />
         ) : (
           <div className="analysis-view" key="analysis">
             <div className="analysis-header">
               <h2>Analysis Dashboard</h2>
-              <p>Your location activity at a glance</p>
+              <p>Your location activity at a glance · {locationLogs.length} events logged</p>
             </div>
 
-            <div className="stat-card-solo">
-              <div className="stat-card-solo-inner">
-                <span className="stat-value-big">6h 42m</span>
-                <span className="stat-label-big">Time tracked yesterday</span>
-                <div className="stat-bar-wide">
-                  <div className="stat-bar-fill-wide" style={{ width: '68%' }} />
-                </div>
-                <span className="stat-sub">68% of your daily average</span>
-              </div>
+            <div className="analysis-tab-row">
+              <button className={`analysis-tab ${analysisTab === 'overview' ? 'analysis-tab-active' : ''}`} onClick={() => setAnalysisTab('overview')}>Overview</button>
+              <button className={`analysis-tab ${analysisTab === 'recommendations' ? 'analysis-tab-active' : ''}`} onClick={() => setAnalysisTab('recommendations')}>Recommendations</button>
             </div>
+
+            {analysisTab === 'overview' && (
+              <>
+                {analysisLoading && (
+                  <div className="analysis-loading">
+                    <div className="analysis-spinner" />
+                    <span>Analysing your day with AI…</span>
+                  </div>
+                )}
+
+                {analysisError && (
+                  <div className="analysis-error">
+                    <strong>Could not load analysis</strong>
+                    <span>{analysisError}</span>
+                    <button onClick={() => { setAnalysis(null); setAnalysisLoading(false); setAnalysisError(null); setMainView('map'); setTimeout(() => setMainView('analysis'), 50) }}>
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {analysis && !analysisLoading && (
+                  <>
+                    <div className="analysis-stats-row">
+                      <div className="stat-card-solo-inner">
+                        <span className="stat-value-big">{analysis.timeTracked}</span>
+                        <span className="stat-label-big">Time tracked yesterday</span>
+                        <div className="stat-bar-wide">
+                          <div className="stat-bar-fill-wide" style={{ width: `${Math.min(100, (analysis.movingTimeMinutes / (analysis.movingTimeMinutes + analysis.stationaryTimeMinutes)) * 100 + 20)}%` }} />
+                        </div>
+                        <span className="stat-sub">{analysis.totalDistanceKm} km · most active {analysis.mostActiveHour}</span>
+                      </div>
+
+                      <div className="stat-card-solo-inner">
+                        <span className="stat-value-big" style={{ fontSize: '28px', letterSpacing: '-0.5px' }}>{analysis.favoritePlace.name}</span>
+                        <span className="stat-label-big">Favourite place</span>
+                        <div className="stat-bar-wide">
+                          <div className="stat-bar-fill-wide" style={{ width: '100%' }} />
+                        </div>
+                        <span className="stat-sub">{analysis.favoritePlace.totalDuration} · {analysis.favoritePlace.visits} visit{analysis.favoritePlace.visits !== 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+
+                    <div className="places-card">
+                      <p className="places-card-label">Places visited</p>
+                      <div className="places-list">
+                        {analysis.placesVisited.map((p, i) => (
+                          <div key={i} className="place-row">
+                            <div className="place-index">{i + 1}</div>
+                            <div className="place-info">
+                              <span className="place-name">{p.name}</span>
+                              <span className="place-meta">{p.arrivalTime} – {p.departureTime} · {p.durationMinutes} min</span>
+                            </div>
+                            <div className="place-coords">{p.coordinates.lat.toFixed(4)}, {p.coordinates.lng.toFixed(4)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="summary-card">
+                      <p className="places-card-label">AI summary</p>
+                      <p className="summary-text">{analysis.summary}</p>
+                      <p className="summary-path-note">📍 {analysis.path?.length ?? 0} path points ready for map rendering</p>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {analysisTab === 'recommendations' && (
+              <>
+                {!analysis && !analysisLoading && (
+                  <div className="analysis-loading">
+                    <div className="analysis-spinner" />
+                    <span>Waiting for analysis to complete…</span>
+                  </div>
+                )}
+
+                {recsLoading && (
+                  <div className="analysis-loading">
+                    <div className="analysis-spinner" />
+                    <span>Finding places you'd love…</span>
+                  </div>
+                )}
+
+                {recsError && (
+                  <div className="analysis-error">
+                    <strong>Could not load recommendations</strong>
+                    <span>{recsError}</span>
+                    <button onClick={() => { setRecommendations(null); setRecsLoading(false); setRecsError(null); setAnalysisTab('overview'); setTimeout(() => setAnalysisTab('recommendations'), 50) }}>Retry</button>
+                  </div>
+                )}
+
+                {recommendations && !recsLoading && (
+                  <div className="recs-section">
+                    <p className="recs-intro">We think you'd like:</p>
+                    <div className="recs-grid">
+                      {recommendations.forYou?.map((rec, i) => (
+                        <RecCard key={i} rec={rec} />
+                      ))}
+                    </div>
+
+                    <div className="recs-divider">
+                      <span>Step outside your comfort zone</span>
+                    </div>
+
+                    <div className="recs-grid">
+                      {recommendations.stepOutside?.map((rec, i) => (
+                        <RecCard key={i} rec={rec} outside />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
             <div className="analysis-footer">
               <button className="btn-generate-ig" onClick={() => setIgOpen(true)}>
