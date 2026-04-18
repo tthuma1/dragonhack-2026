@@ -1,12 +1,27 @@
 import { useState } from 'react'
 
 export default function App() {
+  const [view, setView] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
 
-  const handleLogin = (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault()
-    console.log('Login attempt:', { email, password })
+    if (view === 'login') {
+      console.log('Login:', { email, password })
+    } else {
+      console.log('Sign up:', { name, email, password, confirmPassword })
+    }
+  }
+
+  const switchView = (v) => {
+    setView(v)
+    setEmail('')
+    setPassword('')
+    setName('')
+    setConfirmPassword('')
   }
 
   return (
@@ -14,17 +29,53 @@ export default function App() {
       <div className="card">
         <div className="brand">
           <div className="logo">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <circle cx="14" cy="14" r="13" stroke="#00c9a7" strokeWidth="2" />
-              <circle cx="14" cy="14" r="4" fill="#00c9a7" />
-              <path d="M14 4 Q18 9 14 14 Q10 9 14 4Z" fill="#00c9a7" opacity="0.4" />
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <circle cx="16" cy="16" r="14" stroke="#CC1111" strokeWidth="2.5" />
+              <circle cx="16" cy="16" r="5" fill="#CC1111" />
+              <path d="M16 4 Q21 10 16 16 Q11 10 16 4Z" fill="#CC1111" opacity="0.45" />
             </svg>
           </div>
-          <h1 className="app-name">Loci</h1>
+          <h1 className="app-name">
+            <span className="brand-b">B</span><span className="brand-track">Track</span>
+          </h1>
         </div>
-        <p className="tagline">Your world, remembered.</p>
+        <p className="tagline">
+          {view === 'login' ? 'Welcome back. Sign in to continue.' : 'Create your account to get started.'}
+        </p>
 
-        <form className="form" onSubmit={handleLogin}>
+        <div className="tab-row">
+          <button
+            className={`tab ${view === 'login' ? 'tab-active' : ''}`}
+            onClick={() => switchView('login')}
+            type="button"
+          >
+            Sign in
+          </button>
+          <button
+            className={`tab ${view === 'signup' ? 'tab-active' : ''}`}
+            onClick={() => switchView('signup')}
+            type="button"
+          >
+            Sign up
+          </button>
+        </div>
+
+        <form key={view} className="form form-animated" onSubmit={handleSubmit}>
+          {view === 'signup' && (
+            <div className="field">
+              <label htmlFor="name">Full name</label>
+              <input
+                id="name"
+                type="text"
+                placeholder="Jane Doe"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                autoComplete="name"
+              />
+            </div>
+          )}
+
           <div className="field">
             <label htmlFor="email">Email</label>
             <input
@@ -47,20 +98,42 @@ export default function App() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              autoComplete="current-password"
+              autoComplete={view === 'login' ? 'current-password' : 'new-password'}
             />
           </div>
 
-          <button type="submit" className="btn-login">
-            Sign in
+          {view === 'signup' && (
+            <div className="field">
+              <label htmlFor="confirm-password">Confirm password</label>
+              <input
+                id="confirm-password"
+                type="password"
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+              />
+            </div>
+          )}
+
+          {view === 'login' && (
+            <div className="forgot-row">
+              <a href="#" onClick={(e) => e.preventDefault()}>Forgot password?</a>
+            </div>
+          )}
+
+          <button type="submit" className="btn-primary">
+            {view === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
 
-        <p className="signup-prompt">
-          Don't have an account?{' '}
-          <a href="#" onClick={(e) => e.preventDefault()}>
-            Sign up
-          </a>
+        <p className="switch-prompt">
+          {view === 'login' ? (
+            <>Don't have an account?{' '}<a href="#" onClick={(e) => { e.preventDefault(); switchView('signup') }}>Sign up</a></>
+          ) : (
+            <>Already have an account?{' '}<a href="#" onClick={(e) => { e.preventDefault(); switchView('login') }}>Sign in</a></>
+          )}
         </p>
       </div>
     </div>
