@@ -71,6 +71,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
+        findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.btnZoomIn).setOnClickListener {
+            if (::mMap.isInitialized) {
+                mMap.animateCamera(CameraUpdateFactory.zoomIn())
+            }
+        }
+
+        findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.btnZoomOut).setOnClickListener {
+            if (::mMap.isInitialized) {
+                mMap.animateCamera(CameraUpdateFactory.zoomOut())
+            }
+        }
+
         observeLocations()
     }
 
