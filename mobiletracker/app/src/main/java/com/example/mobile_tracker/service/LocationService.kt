@@ -15,10 +15,17 @@ import com.example.mobile_tracker.network.OverpassResponse
 import com.example.mobile_tracker.network.OverpassService
 import com.google.android.gms.location.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 class LocationService : Service() {
+
+    companion object {
+        private val _isRunning = MutableStateFlow(false)
+        val isRunning = _isRunning.asStateFlow()
+    }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
@@ -46,6 +53,7 @@ class LocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        _isRunning.value = true
         startForegroundService()
         requestLocationUpdates()
         return START_STICKY
@@ -119,6 +127,7 @@ class LocationService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        _isRunning.value = false
         fusedLocationClient.removeLocationUpdates(locationCallback)
         serviceScope.cancel()
     }
