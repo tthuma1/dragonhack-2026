@@ -16,7 +16,7 @@ router = APIRouter(
 
 
 def generate_pal_id_r() -> str:
-    existing = [user["pal_id_r"] for user in get_all_users()]
+    existing = [user.pal_id_r for user in get_all_users()]
     while True:
         candidate = secrets.token_hex(8)
         if candidate not in existing:
@@ -69,11 +69,11 @@ def signing_in(request: SignInRequest):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user_list = get_all_users()
-    user_entry = next(u for u in user_list if u["username"] == request.username)
+    user_entry = next(user for user in user_list if user.username == request.username)
 
     token = secrets.token_hex(32)
-    _sessions[token] = user_entry["pal_id_r"]
-    return SignInResponse(status="Success", token=token, pal_id_r=user_entry["pal_id_r"])
+    _sessions[token] = user_entry.pal_id_r
+    return SignInResponse(status="Success", token=token, pal_id_r=user_entry.pal_id_r)
 
 
 @router.post("/sign_out", response_model=ResponseCheck)

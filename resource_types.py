@@ -20,7 +20,6 @@ class Event(BaseModel):
 
 class ResponseCheck(BaseModel):
     status: str
-    issue = ""
 
 class SignJsonLog(BaseModel):
     username: str
