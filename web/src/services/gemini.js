@@ -159,40 +159,6 @@ Rules:
   return JSON.parse(clean)
 }
 
-export async function generateInstagramCaption(analysis) {
-  if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set in .env.local')
-
-  const summary = analysis
-    ? `Time tracked: ${analysis.timeTracked}. Favourite place: ${analysis.favoritePlace?.name} (${analysis.favoritePlace?.totalDuration}). Places visited: ${analysis.placesVisited?.map(p => p.name).join(', ')}. Total distance: ${analysis.totalDistanceKm} km. Summary: ${analysis.summary}`
-    : 'A full day of exploring the city, tracking locations and adventures.'
-
-  const prompt = `Write an engaging Instagram caption for a location-tracking app called BTrack. Base it on this day summary: ${summary}
-
-Rules:
-- 3–5 sentences, conversational and upbeat
-- Include 1–2 relevant emojis naturally in the text (not just at the end)
-- End with 4–6 relevant hashtags on a new line
-- Do NOT use quotes around the caption
-- Do NOT include any explanation, just the caption itself`
-
-  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.9 },
-    }),
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err?.error?.message ?? `Gemini API error ${res.status}`)
-  }
-
-  const data = await res.json()
-  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
-}
-
 export async function analyzeLocationLogs(logs) {
   if (!API_KEY) throw new Error('VITE_GEMINI_API_KEY is not set in .env.local')
 
