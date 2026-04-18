@@ -93,7 +93,19 @@ class LocationService : Service() {
 
     private fun processLocation(location: Location) {
         serviceScope.launch {
-            val poiInfo = fetchNearbyPOI(location.latitude, location.longitude)
+            val db = AppDatabase.getDatabase(applicationContext)
+            val locationDao = db.locationDao()
+
+            // Check if we already have a POI for this location (or very close to it)
+            val existingPoi = locationDao.getNearbyExistingPoi(location.latitude, location.longitude)
+            
+            val poiInfo = if (existingPoi != null) {
+                Log.d("LocationService", "Using cached POI for ${location.latitude}, ${location.longitude}: ${existingPoi.poiName}")
+                Pair(existingPoi.poiType, existingPoi.poiName)
+            } else {
+                fetchNearbyPOI(location.latitude, location.longitude)
+            }
+
             val entry = LocationEntry(
                 latitude = location.latitude,
                 longitude = location.longitude,
@@ -101,7 +113,7 @@ class LocationService : Service() {
                 poiType = poiInfo?.first,
                 poiName = poiInfo?.second
             )
-            AppDatabase.getDatabase(applicationContext).locationDao().insert(entry)
+            locationDao.insert(entry)
             Log.d("LocationService", "Saved location: ${location.latitude}, ${location.longitude} - POI: ${poiInfo?.second}")
         }
     }
