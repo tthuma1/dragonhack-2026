@@ -20,6 +20,7 @@ class Event(BaseModel):
 
 class ResponseCheck(BaseModel):
     status: str
+    issue = ""
 
 class SignJsonLog(BaseModel):
     username: str
@@ -36,3 +37,8 @@ class SignUpRequest(BaseModel):
 class SignInRequest(BaseModel):
     username: str
     password: str
+
+class SignInResponse(BaseModel):
+    status: str
+    token: str
+    pal_id_r: str

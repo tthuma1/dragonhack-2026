@@ -38,7 +38,7 @@ def trajectory_responder(user_id: str):
 def location_upload(request: LocationRaw):
     status: ResponseCheck = ResponseCheck(status="Failure")
     try:
-        with open(f'{request.pal_id}.json', 'a') as f:
+        with open(f'{request.pal_id_r}.json', 'a') as f:
             f.write(json.dumps({"time": request.time, "lang": request.latitude, "long": request.longitude}))
         all_locations = get_all_points(request.pal_id_r)
         if len(all_locations) >= 80:
