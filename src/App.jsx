@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import MainPage from './MainPage'
 
 export default function App() {
+  const [loggedIn, setLoggedIn] = useState(false)
   const [view, setView] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -9,11 +11,11 @@ export default function App() {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (view === 'login') {
-      console.log('Login:', { email, password })
-    } else {
-      console.log('Sign up:', { name, email, password, confirmPassword })
-    }
+    setLoggedIn(true)
+  }
+
+  if (loggedIn) {
+    return <MainPage onLogout={() => setLoggedIn(false)} />
   }
 
   const switchView = (v) => {
@@ -29,7 +31,7 @@ export default function App() {
       <div className="card">
         <div className="brand">
           <div className="logo">
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
               <circle cx="16" cy="16" r="14" stroke="#CC1111" strokeWidth="2.5" />
               <circle cx="16" cy="16" r="5" fill="#CC1111" />
               <path d="M16 4 Q21 10 16 16 Q11 10 16 4Z" fill="#CC1111" opacity="0.45" />
