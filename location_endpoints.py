@@ -1,18 +1,9 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 import json
-
-class LocationRaw(BaseModel):
-    longitude: float
-    latitude: float
-    time: int
-    event_type: str
-    event_name: str
-
-class ResponseCheck(BaseModel):
-    status: str
+from resource_types import LocationRaw, ResponseCheck
+from datapoint_endpoints import detect_stops_dbscan
 
 router = APIRouter(
     prefix="/location",
@@ -47,9 +38,9 @@ def trajectory_responder(user_id: str):
 def location_upload(request: LocationRaw):
     status: ResponseCheck = ResponseCheck(status="Failure")
     try:
-        with open(f'{request.user_id}.json', 'a') as f:
+        with open(f'{request.pal_id}.json', 'a') as f:
             f.write(json.dumps({"time": request.time, "lang": request.latitude, "long": request.longitude}))
-        all_locations = get_all_points(request.user_id)
+        all_locations = get_all_points(request.pal_id_r)
         if len(all_locations) >= 80:
 
         status.status = "success"
