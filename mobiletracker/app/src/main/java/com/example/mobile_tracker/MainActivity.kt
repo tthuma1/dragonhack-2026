@@ -3,9 +3,12 @@ package com.example.mobile_tracker
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.util.TypedValue
+import android.view.HapticFeedbackConstants
 import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,6 +26,7 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.PolylineOptions
 import com.google.android.gms.maps.model.TileOverlayOptions
+import com.google.android.material.button.MaterialButton
 import com.google.maps.android.heatmaps.HeatmapTileProvider
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -53,13 +57,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 LocationService.isRunning.collect { isRunning ->
-                    val btnToggle = findViewById<Button>(R.id.btnToggle)
-                    btnToggle.text = if (isRunning) "Stop Tracking" else "Start Tracking"
+                    updateToggleButton(isRunning)
                 }
             }
         }
 
-        findViewById<Button>(R.id.btnToggle).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btnToggle).setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             if (LocationService.isRunning.value) {
                 stopService(Intent(this, LocationService::class.java))
             } else {
@@ -68,6 +72,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
 
         observeLocations()
+    }
+
+    private fun updateToggleButton(isRunning: Boolean) {
+        val btnToggle = findViewById<MaterialButton>(R.id.btnToggle)
+        if (isRunning) {
+            btnToggle.setText(R.string.stop_tracking)
+            btnToggle.setIconResource(R.drawable.ic_stop_tracking)
+            btnToggle.backgroundTintList = ColorStateList.valueOf(getColorFromAttr(com.google.android.material.R.attr.colorError))
+        } else {
+            btnToggle.setText(R.string.start_tracking)
+            btnToggle.setIconResource(R.drawable.ic_start_tracking)
+            btnToggle.backgroundTintList = ColorStateList.valueOf(getColorFromAttr(com.google.android.material.R.attr.colorPrimary))
+        }
+    }
+
+    private fun getColorFromAttr(attr: Int): Int {
+        val typedValue = TypedValue()
+        theme.resolveAttribute(attr, typedValue, true)
+        return typedValue.data
     }
 
     override fun onMapReady(googleMap: GoogleMap) {
