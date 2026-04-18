@@ -1,0 +1,125 @@
+package com.example.mobile_tracker.service
+
+import android.app.*
+import android.content.Context
+import android.content.Intent
+import android.location.Location
+import android.os.IBinder
+import android.os.Looper
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.example.mobile_tracker.R
+import com.example.mobile_tracker.data.AppDatabase
+import com.example.mobile_tracker.data.LocationEntry
+import com.example.mobile_tracker.network.OverpassResponse
+import com.example.mobile_tracker.network.OverpassService
+import com.google.android.gms.location.*
+import kotlinx.coroutines.*
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+
+class LocationService : Service() {
+
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var locationCallback: LocationCallback
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    
+    private val overpassService: OverpassService by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://overpass-api.de/")
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(OverpassService::class.java)
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                locationResult.lastLocation?.let { location ->
+                    processLocation(location)
+                }
+            }
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForegroundService()
+        requestLocationUpdates()
+        return START_STICKY
+    }
+
+    private fun startForegroundService() {
+        val channelId = "location_channel"
+        val channelName = "Location Tracking"
+        val channel = NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_LOW)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(channel)
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Tracking Location")
+            .setContentText("Identifying nearby places...")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .build()
+
+        startForeground(1, notification)
+    }
+
+    private fun requestLocationUpdates() {
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
+            .setMinUpdateIntervalMillis(5000)
+            .build()
+
+        try {
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                Looper.getMainLooper()
+            )
+        } catch (e: SecurityException) {
+            Log.e("LocationService", "Permission denied", e)
+        }
+    }
+
+    private fun processLocation(location: Location) {
+        serviceScope.launch {
+            val poiInfo = fetchNearbyPOI(location.latitude, location.longitude)
+            val entry = LocationEntry(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                timestamp = System.currentTimeMillis(),
+                poiType = poiInfo?.first,
+                poiName = poiInfo?.second
+            )
+            AppDatabase.getDatabase(applicationContext).locationDao().insert(entry)
+            Log.d("LocationService", "Saved location: ${location.latitude}, ${location.longitude} - POI: ${poiInfo?.second}")
+        }
+    }
+
+    private suspend fun fetchNearbyPOI(lat: Double, lon: Double): Pair<String?, String?>? {
+        return try {
+            // Overpass query for amenities within 50m
+            val query = "[out:json];node(around:50,$lat,$lon)[amenity];out 1;"
+            val response = overpassService.getNearbyPOIs(query)
+            val element = response.elements.firstOrNull()
+            if (element != null) {
+                val type = element.tags?.get("amenity")
+                val name = element.tags?.get("name")
+                Pair(type, name)
+            } else null
+        } catch (e: Exception) {
+            Log.e("LocationService", "Error fetching POI", e)
+            null
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+        serviceScope.cancel()
+    }
+}
