@@ -1,30 +1,14 @@
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import locationLogs from './data/locationLogs.js'
 import './MapView.css'
 
-const pathCoords = locationLogs.map(l => [l.latitude, l.longitude])
-
-const stops = []
-const seen = new Set()
-for (const log of locationLogs) {
-  if (log.event_type === 'arrive' && !seen.has(log.event_name)) {
-    seen.add(log.event_name)
-    stops.push(log)
-  }
-}
-
-const avgLat = pathCoords.reduce((s, c) => s + c[0], 0) / pathCoords.length
-const avgLng = pathCoords.reduce((s, c) => s + c[1], 0) / pathCoords.length
-
-export default function MapView({ analysis }) {
+export default function MapView({ analysis, logs = [], trajectory = [] }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
 
   useEffect(() => {
     if (mapRef.current) return
-
     const map = L.map(containerRef.current, { zoomControl: true })
     mapRef.current = map
 
@@ -33,38 +17,54 @@ export default function MapView({ analysis }) {
       maxZoom: 19,
     }).addTo(map)
 
-    // Path polyline
-    L.polyline(pathCoords, { color: '#CC1111', weight: 3, opacity: 0.75 }).addTo(map)
-
-    // Start dot
-    L.circleMarker(pathCoords[0], {
-      radius: 7, color: '#16a34a', fillColor: '#16a34a', fillOpacity: 1, weight: 2,
-    }).addTo(map).bindPopup(`<b>Start</b><br>${locationLogs[0].time.slice(11, 16)}`)
-
-    // End dot
-    L.circleMarker(pathCoords[pathCoords.length - 1], {
-      radius: 7, color: '#1d4ed8', fillColor: '#1d4ed8', fillOpacity: 1, weight: 2,
-    }).addTo(map).bindPopup(`<b>End</b><br>${locationLogs[locationLogs.length - 1].time.slice(11, 16)}`)
-
-    // Named stop markers
-    stops.forEach(stop => {
-      L.circleMarker([stop.latitude, stop.longitude], {
-        radius: 9, color: '#CC1111', fillColor: '#ffffff', fillOpacity: 1, weight: 2.5,
-      }).addTo(map).bindPopup(`<b>${stop.event_name}</b>`)
-    })
-
-    map.fitBounds(pathCoords, { padding: [48, 48] })
-
     return () => {
       map.remove()
       mapRef.current = null
     }
   }, [])
 
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || (logs.length === 0 && trajectory.length === 0)) return
+
+    map.eachLayer(layer => { if (layer && layer.options && layer.options.attribution === undefined) map.removeLayer(layer) })
+
+    // Draw trajectory path
+    if (trajectory.length > 0) {
+      const trajCoords = [...trajectory]
+        .sort((a, b) => a.time - b.time)
+        .map(p => [p.latitude, p.longitude])
+        .filter(([a, b]) => a != null && b != null)
+      if (trajCoords.length === 0) return
+      L.polyline(trajCoords, { color: '#CC1111', weight: 2, opacity: 0.6 }).addTo(map)
+
+      // Start marker from first trajectory point
+      L.circleMarker(trajCoords[0], { radius: 7, color: '#16a34a', fillColor: '#16a34a', fillOpacity: 1, weight: 2 }).addTo(map)
+
+      const last = trajCoords[trajCoords.length - 1]
+      if (trajCoords.length > 1) L.circleMarker(last, { radius: 7, color: '#1d4ed8', fillColor: '#1d4ed8', fillOpacity: 1, weight: 2 }).addTo(map)
+    }
+
+    // Draw event stop markers
+    const sorted = [...logs].sort((a, b) => a.time_from - b.time_from)
+    sorted.forEach(event => {
+      const names = event.event_name?.filter(Boolean) ?? []
+      const label = names.length ? names.join(', ') : 'Stop'
+      L.circleMarker([event.lat, event.lng], {
+        radius: 9, color: '#CC1111', fillColor: '#ffffff', fillOpacity: 1, weight: 2.5,
+      }).addTo(map).bindPopup(`<b>${label}</b>`)
+    })
+
+    const allCoords = [
+      ...trajectory.map(p => [p.latitude, p.longitude]),
+      ...sorted.map(e => [e.lat, e.lng]),
+    ].filter(([a, b]) => a != null && b != null)
+    if (allCoords.length > 0) map.fitBounds(allCoords, { padding: [48, 48] })
+  }, [logs, trajectory])
+
   // Enrich stop popups with analysis data once available
   useEffect(() => {
     if (!analysis || !mapRef.current) return
-    // Popups are already open on demand; analysis data shown in analysis tab
   }, [analysis])
 
   return (

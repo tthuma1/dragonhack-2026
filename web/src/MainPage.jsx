@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import './MainPage.css'
-import locationLogs from './data/locationLogs.js'
 import { analyzeLocationLogs, generateRecommendations, sendChatMessage } from './services/gemini.js'
+import { getEvents, getTrajectory } from './services/api.js'
 import MapView from './MapView.jsx'
 
 const IconSearch = () => (
@@ -100,7 +100,11 @@ function renderMarkdown(text) {
 }
 
 
-export default function MainPage({ onLogout }) {
+export default function MainPage({ onLogout, palIdR }) {
+  const [logs, setLogs] = useState([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsError, setLogsError] = useState(null)
+  const [trajectory, setTrajectory] = useState([])
   const [mainView, setMainView] = useState('map')
   const [panel, setPanel] = useState(null) // 'search' | 'ai' | null
   const [searchQuery, setSearchQuery] = useState('')
@@ -134,7 +138,7 @@ export default function MainPage({ onLogout }) {
     setChatInput('')
     setChatLoading(true)
     try {
-      const reply = await sendChatMessage(updatedMessages, analysis, locationLogs)
+      const reply = await sendChatMessage(updatedMessages, analysis, logs)
       setChatMessages(prev => [...prev, { role: 'ai', text: reply }])
     } catch (e) {
       setChatMessages(prev => [...prev, { role: 'ai', text: `Error: ${e.message}` }])
@@ -158,14 +162,30 @@ export default function MainPage({ onLogout }) {
   }, [analysisTab, analysis])
 
   useEffect(() => {
-    if (mainView !== 'analysis' || analysis || analysisLoading) return
+    if (mainView !== 'analysis' || analysis || analysisLoading || logsLoading || logs.length === 0) return
     setAnalysisLoading(true)
     setAnalysisError(null)
-    analyzeLocationLogs(locationLogs)
+    analyzeLocationLogs(logs)
       .then(setAnalysis)
       .catch(e => setAnalysisError(e.message))
       .finally(() => setAnalysisLoading(false))
-  }, [mainView])
+  }, [mainView, logs])
+
+  useEffect(() => {
+    if (!palIdR) return
+    let mounted = true
+    setLogsLoading(true)
+    setLogsError(null)
+    Promise.all([getEvents(palIdR), getTrajectory(palIdR)])
+      .then(([eventsData, trajData]) => {
+        if (!mounted) return
+        setLogs(eventsData.events ?? [])
+        setTrajectory(trajData.trajectory ?? [])
+      })
+      .catch(e => { if (!mounted) return; setLogsError(e.message) })
+      .finally(() => { if (!mounted) return; setLogsLoading(false) })
+    return () => { mounted = false }
+  }, [palIdR])
 
   return (
     <div className="main-layout">
@@ -298,12 +318,12 @@ export default function MainPage({ onLogout }) {
       {/* Main content */}
       <main className="main-content">
         {mainView === 'map' ? (
-          <MapView key="map" analysis={analysis} />
+          <MapView key="map" analysis={analysis} logs={logs} trajectory={trajectory} />
         ) : (
           <div className="analysis-view" key="analysis">
             <div className="analysis-header">
               <h2>Analysis Dashboard</h2>
-              <p>Your location activity at a glance · {locationLogs.length} events logged</p>
+              <p>Your location activity at a glance · {logs.length} events logged</p>
             </div>
 
             <div className="analysis-tab-row">

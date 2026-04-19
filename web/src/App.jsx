@@ -1,29 +1,69 @@
 import { useState } from 'react'
 import MainPage from './MainPage'
+import { signIn, signUp, signOut } from './services/api.js'
 
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(false)
+  const [palIdR, setPalIdR] = useState(() => localStorage.getItem('palIdR'))
+  const [token, setToken] = useState(() => localStorage.getItem('token'))
+  const [loggedIn, setLoggedIn] = useState(() => !!localStorage.getItem('token'))
   const [view, setView] = useState('login')
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [authError, setAuthError] = useState(null)
+  const [authLoading, setAuthLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    setLoggedIn(true)
+    setAuthError(null)
+    setAuthLoading(true)
+    try {
+      if (view === 'login') {
+        const res = await signIn({ username, password })
+        localStorage.setItem('token', res.token)
+        localStorage.setItem('palIdR', res.pal_id_r)
+        setToken(res.token)
+        setPalIdR(res.pal_id_r)
+        setLoggedIn(true)
+      } else {
+        await signUp({ username: name, email, password, repassword: confirmPassword })
+        setView('login')
+        setUsername(name)
+        setName('')
+        setEmail('')
+        setPassword('')
+        setConfirmPassword('')
+      }
+    } catch (err) {
+      setAuthError(err.message)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    if (token) await signOut(token).catch(() => {})
+    localStorage.removeItem('token')
+    localStorage.removeItem('palIdR')
+    setToken(null)
+    setPalIdR(null)
+    setLoggedIn(false)
   }
 
   if (loggedIn) {
-    return <MainPage onLogout={() => setLoggedIn(false)} />
+    return <MainPage onLogout={handleLogout} palIdR={palIdR} />
   }
 
   const switchView = (v) => {
     setView(v)
+    setUsername('')
     setEmail('')
     setPassword('')
     setName('')
     setConfirmPassword('')
+    setAuthError(null)
   }
 
   return (
@@ -65,31 +105,48 @@ export default function App() {
         <form key={view} className="form form-animated" onSubmit={handleSubmit}>
           {view === 'signup' && (
             <div className="field">
-              <label htmlFor="name">Full name</label>
+              <label htmlFor="name">Username</label>
               <input
                 id="name"
                 type="text"
-                placeholder="Jane Doe"
+                placeholder="janedoe"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                autoComplete="name"
+                autoComplete="username"
               />
             </div>
           )}
 
-          <div className="field">
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-            />
-          </div>
+          {view === 'login' && (
+            <div className="field">
+              <label htmlFor="username">Username</label>
+              <input
+                id="username"
+                type="text"
+                placeholder="janedoe"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                autoComplete="username"
+              />
+            </div>
+          )}
+
+          {view === 'signup' && (
+            <div className="field">
+              <label htmlFor="email">Email</label>
+              <input
+                id="email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </div>
+          )}
 
           <div className="field">
             <label htmlFor="password">Password</label>
@@ -119,14 +176,10 @@ export default function App() {
             </div>
           )}
 
-          {view === 'login' && (
-            <div className="forgot-row">
-              <a href="#" onClick={(e) => e.preventDefault()}>Forgot password?</a>
-            </div>
-          )}
+          {authError && <p className="form-error">{authError}</p>}
 
-          <button type="submit" className="btn-primary">
-            {view === 'login' ? 'Sign in' : 'Create account'}
+          <button type="submit" className="btn-primary" disabled={authLoading}>
+            {authLoading ? 'Please wait…' : view === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
 
