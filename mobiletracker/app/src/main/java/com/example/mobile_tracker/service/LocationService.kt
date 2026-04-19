@@ -17,6 +17,7 @@ import com.google.android.gms.location.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.example.mobile_tracker.data.SessionManager
@@ -35,8 +36,19 @@ class  LocationService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
     private val overpassService: OverpassService by lazy {
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("User-Agent", "MobileTracker/1.0 (Android; contact: developer@example.com)")
+                    .header("Accept", "application/json")
+                    .build()
+                chain.proceed(request)
+            }
+            .build()
+
         Retrofit.Builder()
             .baseUrl("https://overpass-api.de/")
+            .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(OverpassService::class.java)
@@ -139,13 +151,18 @@ class  LocationService : Service() {
 
     private suspend fun fetchNearbyPOI(lat: Double, lon: Double): Pair<String?, String?>? {
         return try {
-            // Overpass query for amenities within 50m
-            val query = "[out:json];node(around:50,$lat,$lon)[amenity];out 1;"
+            // Overpass query for various POI types within 50m
+            val query = "[out:json];(node(around:50,$lat,$lon)[amenity];way(around:50,$lat,$lon)[amenity];node(around:50,$lat,$lon)[shop];way(around:50,$lat,$lon)[shop];node(around:50,$lat,$lon)[leisure];way(around:50,$lat,$lon)[leisure];node(around:50,$lat,$lon)[tourism];way(around:50,$lat,$lon)[tourism];);out tags center 1;"
             val response = overpassService.getNearbyPOIs(query)
             val element = response.elements.firstOrNull()
             if (element != null) {
-                val type = element.tags?.get("amenity")
-                val name = element.tags?.get("name")
+                val tags = element.tags
+                val name = tags?.get("name")
+                val type = tags?.get("amenity") 
+                    ?: tags?.get("shop") 
+                    ?: tags?.get("leisure") 
+                    ?: tags?.get("tourism") 
+                    ?: "poi"
                 Pair(type, name)
             } else null
         } catch (e: Exception) {
