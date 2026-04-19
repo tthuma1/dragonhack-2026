@@ -137,8 +137,8 @@ class  LocationService : Service() {
                         longitude = entry.longitude,
                         latitude = entry.latitude,
                         time = (entry.timestamp / 1000).toInt(),
-                        event_type = "location",
-                        event_name = "gps",
+                        event_type = entry.poiType ?: "unknown",
+                        event_name = entry.poiName ?: "unknown",
                         poi_type = entry.poiType,
                         poi_name = entry.poiName
                     )
