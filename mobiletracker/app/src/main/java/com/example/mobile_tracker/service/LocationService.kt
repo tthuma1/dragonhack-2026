@@ -138,7 +138,9 @@ class  LocationService : Service() {
                         latitude = entry.latitude,
                         time = (entry.timestamp / 1000).toInt(),
                         event_type = "location",
-                        event_name = "gps"
+                        event_name = "gps",
+                        poi_type = entry.poiType,
+                        poi_name = entry.poiName
                     )
                     ApiClient.service.uploadLocation(payload)
                 } catch (e: Exception) {

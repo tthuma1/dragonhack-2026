@@ -7,7 +7,9 @@ data class LocationRaw(
     val latitude: Double,
     val time: Int,
     val event_type: String,
-    val event_name: String
+    val event_name: String,
+    val poi_type: String?,
+    val poi_name: String?
 )
 
 data class ResponseCheck(
