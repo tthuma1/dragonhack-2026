@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.HapticFeedbackConstants
-import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -18,6 +17,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.mobile_tracker.data.AppDatabase
+import com.example.mobile_tracker.data.SessionManager
+import com.example.mobile_tracker.network.ApiClient
 import com.example.mobile_tracker.service.LocationService
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
@@ -48,6 +49,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (SessionManager.getToken(this) == null) {
+            startActivity(Intent(this, LoginActivity::class.java))
+            finish()
+            return
+        }
+
         setContentView(R.layout.activity_main)
 
         val mapFragment = supportFragmentManager
@@ -59,6 +67,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 LocationService.isRunning.collect { isRunning ->
                     updateToggleButton(isRunning)
                 }
+            }
+        }
+
+        findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.btnSignOut).setOnClickListener {
+            lifecycleScope.launch {
+                val token = SessionManager.getToken(this@MainActivity)
+                if (token != null) {
+                    try { ApiClient.service.signOut(token) } catch (_: Exception) {}
+                }
+                stopService(Intent(this@MainActivity, LocationService::class.java))
+                SessionManager.clearSession(this@MainActivity)
+                startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                finish()
             }
         }
 

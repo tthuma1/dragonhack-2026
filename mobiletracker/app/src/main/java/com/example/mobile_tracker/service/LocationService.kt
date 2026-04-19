@@ -19,8 +19,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import com.example.mobile_tracker.data.SessionManager
+import com.example.mobile_tracker.network.ApiClient
+import com.example.mobile_tracker.network.LocationRaw
 
-class LocationService : Service() {
+class  LocationService : Service() {
 
     companion object {
         private val _isRunning = MutableStateFlow(false)
@@ -114,6 +117,22 @@ class LocationService : Service() {
                 poiName = poiInfo?.second
             )
             locationDao.insert(entry)
+            serviceScope.launch {
+                try {
+                    val payload = LocationRaw(
+                        number = SessionManager.nextUploadNumber(applicationContext),
+                        pal_id_r = SessionManager.getPalIdR(applicationContext),
+                        longitude = entry.longitude,
+                        latitude = entry.latitude,
+                        time = (entry.timestamp / 1000).toInt(),
+                        event_type = "location",
+                        event_name = "gps"
+                    )
+                    ApiClient.service.uploadLocation(payload)
+                } catch (e: Exception) {
+                    Log.e("LocationService", "Failed uploading location", e)
+                }
+            }
             Log.d("LocationService", "Saved location: ${location.latitude}, ${location.longitude} - POI: ${poiInfo?.second}")
         }
     }
