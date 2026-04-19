@@ -16,6 +16,7 @@ def generate_stops(
         json.dump(data, f)
         f.write('\n')
 
+
 import numpy as np
 
 
@@ -54,8 +55,8 @@ def detect_stops_dbscan(
                 "time_from": cluster_points[0]["time"],
                 "time_to": cluster_points[-1]["time"],
                 "point_count": len(cluster_points),
-                "event_type": [],
-                "event_name": [],
+                "event_type": cluster_points[0]["event_type"],
+                "event_name": cluster_points[0]["event_name"],
                 "event_weight": []
             })
 

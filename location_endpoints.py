@@ -59,7 +59,7 @@ def location_upload(request: LocationRaw):
     status: ResponseCheck = ResponseCheck(status="Failure")
     try:
         with open(f'logs/{request.pal_id_r}.json', 'a') as f:
-            f.write(f'{json.dumps({"time": request.time, "latitude": request.latitude, "longitude": request.longitude})}\n')
+            f.write(f'{json.dumps({"time": request.time, "latitude": request.latitude, "longitude": request.longitude, "event_type": request.event_type, "event_name": request.event_name})}\n')
         if request.number % 4 == 0:
             with open(f'trajectory/{request.pal_id_r}.json', 'a') as f:
                 f.write(f'{json.dumps({"time": request.time, "latitude": request.latitude, "longitude": request.longitude})}\n')
