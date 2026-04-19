@@ -24,32 +24,53 @@ const SCHEMA = `{
   ]
 }`
 
-function buildPrompt(logs) {
-  const csv = [
-    'id,longitude,latitude,time,event_type,event_name',
-    ...logs.map(l =>
-      `${l.id},${l.longitude},${l.latitude},${l.time},${l.event_type},${l.event_name}`
-    ),
-  ].join('\n')
+async function reverseGeocode(lat, lng) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18`,
+      { headers: { 'Accept-Language': 'en' } }
+    )
+    const data = await res.json()
+    const a = data.address ?? {}
+    return a.amenity || a.building || a.shop || a.tourism || a.leisure ||
+           a.office || a.road || data.display_name?.split(',')[0] || ''
+  } catch {
+    return ''
+  }
+}
 
-  return `You are a personal location analytics assistant. Analyse the GPS log below and return ONLY a valid JSON object matching the schema exactly — no markdown, no extra text.
+async function buildPrompt(logs) {
+  const geocoded = await Promise.all(logs.map(e => reverseGeocode(e.lat, e.lng)))
+
+  const rows = logs.map((e, i) => {
+    const names = (e.event_name ?? []).filter(Boolean).join('; ') || geocoded[i] || ''
+    const types = (e.event_type ?? []).filter(Boolean).join('; ') || ''
+    const from = new Date(e.time_from * 1000).toISOString()
+    const to = new Date(e.time_to * 1000).toISOString()
+    return `${i + 1},${e.lat},${e.lng},${from},${to},${e.point_count},"${types}","${names}"`
+  }).join('\n')
+
+  return `You are a personal location analytics assistant. Analyse the stay-cluster log below and return ONLY a valid JSON object matching the schema exactly — no markdown, no extra text.
 
 Schema:
 ${SCHEMA}
 
-Rules:
-- timeTracked = total span from first to last log entry (HH:MM format → convert to "Xh Ym")
-- favoritePlace = named place with longest cumulative stationary time
-- placesVisited = deduplicated named stops (exclude "En route …" events), sorted by arrival time
-- path = every log entry as a coordinate point, in chronological order, suitable for drawing a polyline on a map
-- totalDistanceKm = rough estimate based on coordinate deltas (Haversine; round to 1 decimal)
-- movingTimeMinutes = total time where event_type = "moving"
-- stationaryTimeMinutes = total time where event_type = "stationary" or "arrive"
-- mostActiveHour = 1-hour window with most distinct log entries
-- summary = friendly 2–3 sentence narrative written in second person ("You started your day…")
+Each row is a stay cluster: index, lat, lng, time_from (ISO), time_to (ISO), point_count, event_types (semicolon-separated, may be empty), place_names (semicolon-separated, may be empty).
 
-GPS Log (CSV):
-${csv}`
+Rules:
+- timeTracked = span from earliest time_from to latest time_to, formatted as "Xh Ym"
+- favoritePlace = cluster with longest duration (time_to − time_from); name it using place_names if non-empty, otherwise use event_types and coordinates to infer the most sensible real-world place name
+- placesVisited = one entry per cluster, sorted by time_from; arrivalTime/departureTime as local HH:MM; treat the coordinates as a reverse geocode lookup — identify the exact or nearest named real-world venue, building, street, or landmark at that lat/lng using your training data; use place_names and event_types only as additional hints; never use raw coordinates or generic names like "unknown"
+- totalDistanceKm = Haversine sum between consecutive cluster centroids, round to 1 decimal
+- movingTimeMinutes = gaps between clusters (time between one time_to and next time_from)
+- stationaryTimeMinutes = sum of (time_to − time_from) for all clusters
+- mostActiveHour = 1-hour window containing the most cluster activity
+- path = cluster centroids in chronological order
+- summary = friendly 2–3 sentence narrative in second person describing where the user spent time and what they likely did
+
+Stay-cluster log (CSV):
+index,lat,lng,time_from,time_to,point_count,event_types,place_names
+${rows}`
 }
 
 export async function sendChatMessage(messages, analysis, logs) {
@@ -166,7 +187,7 @@ export async function analyzeLocationLogs(logs) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: buildPrompt(logs) }] }],
+      contents: [{ parts: [{ text: await buildPrompt(logs) }] }],
       generationConfig: {
         temperature: 0.2,
         responseMimeType: 'application/json',
