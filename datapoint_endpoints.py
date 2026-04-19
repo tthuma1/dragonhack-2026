@@ -1,224 +1,62 @@
-from fastapi import FastAPI, Query, HTTPException, APIRouter
-from pydantic import BaseModel
-from typing import Optional
-import httpx
+import json
 
-router = APIRouter(
-    prefix="/datapoint",
-    tags=["datapoint"],
-)
+from resource_types import Event
+from sklearn.cluster import DBSCAN
+def generate_stops(
+        filename: str,
+        points: list[dict],
+        eps_m: float = 50,  # max razdalja med točkami v gruči (metri)
+        min_samples: int = 10,  # min točk za gruč = stop
+        min_duration_sec: int = 120,
 
-GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"  # Set via env var in production
+):
+    data = detect_stops_dbscan(points, eps_m, min_samples, min_duration_sec)
 
+    with open(filename, 'a') as f:
+        json.dump(data, f)
+        f.write('\n')
 
-# --- Response Models ---
-
-class Place(BaseModel):
-    name: str
-    purpose: str          # e.g. cafe, college, restaurant
-    category: str         # broader category e.g. food, education
-    distance_m: Optional[float] = None
-    address: Optional[str] = None
-    lat: float
-    lng: float
-    source: str           # "nominatim" or "google"
+import numpy as np
 
 
-class LocationResponse(BaseModel):
-    lat: float
-    lng: float
-    radius_m: int
-    places: list[Place]
+def centroid(points: list[dict]) -> tuple[float, float]:
+    """Povprečna lokacija stopa."""
+    return (
+        sum(p["latitude"] for p in points) / len(points),
+        sum(p["longitude"] for p in points) / len(points)
+    )
 
 
-# --- Nominatim (free, no key needed) ---
+def detect_stops_dbscan(
+        points: list[dict],
+        eps_m: float = 50,  # max razdalja med točkami v gruči (metri)
+        min_samples: int = 10,  # min točk za gruč = stop
+        min_duration_sec: int = 120,
+) -> list[dict]:
+    # Koordinate v radiane za haversine metriko
+    coords = np.radians([[p["latitude"], p["longitude"]] for p in points])
+    eps_rad = eps_m / 6371000  # metri → radiani
 
-async def resolve_nominatim(lat: float, lng: float, radius_m: int) -> list[Place]:
-    """
-    Uses OSM Overpass API to find POIs within a radius.
-    Returns places with their OSM amenity/shop/leisure tags as purpose.
-    """
-    # Overpass QL: find nodes with useful tags within radius
-    overpass_query = f"""
-    [out:json][timeout:10];
-    (
-      node["amenity"](around:{radius_m},{lat},{lng});
-      node["shop"](around:{radius_m},{lat},{lng});
-      node["leisure"](around:{radius_m},{lat},{lng});
-      node["tourism"](around:{radius_m},{lat},{lng});
-    );
-    out body;
-    """
+    db = DBSCAN(eps=eps_rad, min_samples=min_samples, algorithm="ball_tree", metric="haversine").fit(coords)
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://overpass-api.de/api/interpreter",
-            data={"data": overpass_query},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-    places = []
-    for el in data.get("elements", []):
-        tags = el.get("tags", {})
-        name = tags.get("name")
-        if not name:
+    stops = []
+    for label in set(db.labels_):
+        if label == -1:  # šum / pot med stopi
             continue
 
-        purpose = (
-            tags.get("amenity")
-            or tags.get("shop")
-            or tags.get("leisure")
-            or tags.get("tourism")
-            or "unknown"
-        )
-        category = osm_category(purpose)
+        cluster_points = [p for p, l in zip(points, db.labels_) if l == label]
+        duration = cluster_points[-1]["time"] - cluster_points[0]["time"]
 
-        places.append(Place(
-            name=name,
-            purpose=purpose.replace("_", " "),
-            category=category,
-            lat=el["lat"],
-            lng=el["lon"],
-            address=tags.get("addr:street", ""),
-            source="nominatim/osm",
-        ))
+        if duration >= min_duration_sec:
+            stops.append({
+                "lat": centroid(cluster_points)[0],
+                "lng": centroid(cluster_points)[1],
+                "time_from": cluster_points[0]["time"],
+                "time_to": cluster_points[-1]["time"],
+                "point_count": len(cluster_points),
+                "event_type": [],
+                "event_name": [],
+                "event_weight": []
+            })
 
-    return places
-
-
-def osm_category(purpose: str) -> str:
-    """Map OSM tags to broad categories."""
-    mapping = {
-        "cafe": "food", "restaurant": "food", "fast_food": "food",
-        "bar": "food", "pub": "food", "bakery": "food",
-        "university": "education", "college": "education", "school": "education",
-        "library": "education", "kindergarten": "education",
-        "hospital": "health", "clinic": "health", "pharmacy": "health", "doctors": "health",
-        "supermarket": "shopping", "convenience": "shopping", "clothes": "shopping",
-        "hotel": "accommodation", "hostel": "accommodation", "motel": "accommodation",
-        "park": "leisure", "gym": "leisure", "sports_centre": "leisure",
-        "museum": "tourism", "gallery": "tourism", "attraction": "tourism",
-        "bank": "finance", "atm": "finance",
-        "bus_station": "transport", "fuel": "transport", "parking": "transport",
-    }
-    return mapping.get(purpose, "other")
-
-
-# --- Google Places (requires API key, richer data) ---
-
-async def resolve_google(lat: float, lng: float, radius_m: int) -> list[Place]:
-    """
-    Uses Google Places Nearby Search to find POIs within a radius.
-    """
-    url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
-    params = {
-        "location": f"{lat},{lng}",
-        "radius": radius_m,
-        "key": GOOGLE_API_KEY,
-    }
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-
-    if data.get("status") not in ("OK", "ZERO_RESULTS"):
-        raise HTTPException(502, f"Google Places error: {data.get('status')}")
-
-    places = []
-    for result in data.get("results", []):
-        types = result.get("types", [])
-        purpose = types[0].replace("_", " ") if types else "unknown"
-        category = google_category(types)
-
-        geo = result["geometry"]["location"]
-        places.append(Place(
-            name=result["name"],
-            purpose=purpose,
-            category=category,
-            lat=geo["lat"],
-            lng=geo["lng"],
-            address=result.get("vicinity", ""),
-            source="google",
-        ))
-
-    return places
-
-
-def google_category(types: list[str]) -> str:
-    """Map Google place types to broad categories."""
-    type_set = set(types)
-    if type_set & {"cafe", "restaurant", "food", "bakery", "bar", "meal_takeaway"}:
-        return "food"
-    if type_set & {"university", "school", "secondary_school", "primary_school"}:
-        return "education"
-    if type_set & {"hospital", "doctor", "pharmacy", "health", "dentist"}:
-        return "health"
-    if type_set & {"store", "supermarket", "shopping_mall", "clothing_store"}:
-        return "shopping"
-    if type_set & {"lodging", "hotel"}:
-        return "accommodation"
-    if type_set & {"park", "gym", "stadium", "amusement_park", "zoo"}:
-        return "leisure"
-    if type_set & {"museum", "tourist_attraction", "art_gallery"}:
-        return "tourism"
-    if type_set & {"bank", "atm", "finance"}:
-        return "finance"
-    if type_set & {"bus_station", "transit_station", "subway_station", "gas_station"}:
-        return "transport"
-    return "other"
-
-
-# --- Endpoints ---
-
-@router.get("/resolve/osm", response_model=LocationResponse)
-async def resolve_osm(
-    lat: float = Query(..., description="Latitude"),
-    lng: float = Query(..., description="Longitude"),
-    radius: int = Query(200, ge=10, le=5000, description="Search radius in meters"),
-):
-    """
-    Resolve coordinates to nearby places using OpenStreetMap (free, no key required).
-    """
-    places = await resolve_nominatim(lat, lng, radius)
-    return LocationResponse(lat=lat, lng=lng, radius_m=radius, places=places)
-
-
-@router.get("/resolve/google", response_model=LocationResponse)
-async def resolve_google_endpoint(
-    lat: float = Query(..., description="Latitude"),
-    lng: float = Query(..., description="Longitude"),
-    radius: int = Query(200, ge=10, le=5000, description="Search radius in meters"),
-):
-    """
-    Resolve coordinates to nearby places using Google Places API (requires API key).
-    """
-    places = await resolve_google(lat, lng, radius)
-    return LocationResponse(lat=lat, lng=lng, radius_m=radius, places=places)
-
-
-@router.get("/resolve", response_model=LocationResponse)
-async def resolve_combined(
-    lat: float = Query(..., description="Latitude"),
-    lng: float = Query(..., description="Longitude"),
-    radius: int = Query(200, ge=10, le=5000, description="Search radius in meters"),
-    provider: str = Query("osm", enum=["osm", "google", "both"], description="Data provider"),
-):
-    """
-    Resolve coordinates using OSM, Google, or both combined.
-    """
-    if provider == "osm":
-        places = await resolve_nominatim(lat, lng, radius)
-    elif provider == "google":
-        places = await resolve_google(lat, lng, radius)
-    else:
-        osm_places = await resolve_nominatim(lat, lng, radius)
-        google_places = await resolve_google(lat, lng, radius)
-        # Deduplicate by name (simple approach)
-        seen = {p.name.lower() for p in osm_places}
-        unique_google = [p for p in google_places if p.name.lower() not in seen]
-        places = osm_places + unique_google
-
-    return LocationResponse(lat=lat, lng=lng, radius_m=radius, places=places)
+    return stops

@@ -54,7 +54,9 @@ def location_upload(request: LocationRaw):
                 f.write(f'{json.dumps({"time": request.time, "latitude": request.latitude, "longitude": request.longitude})}\n')
         all_locations = get_all_points(request.pal_id_r)
         if len(all_locations) >= 80:
+            generate_stops(f'events/{request.pal_id_r}.json', all_locations)
 
+            open(f'logs/{request.pal_id_r}.json', 'w')
         status.status = "success"
         return status
     except Exception:
