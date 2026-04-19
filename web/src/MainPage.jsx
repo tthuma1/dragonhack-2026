@@ -1,15 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import './MainPage.css'
-import { analyzeLocationLogs, generateRecommendations, sendChatMessage } from './services/gemini.js'
+import { analyzeLocationLogs, generateInstagramCaption, generateRecommendations, sendChatMessage } from './services/gemini.js'
 import { getEvents, getTrajectory } from './services/api.js'
 import MapView from './MapView.jsx'
-
-const IconSearch = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8" />
-    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-  </svg>
-)
 
 const IconMap = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -52,16 +45,8 @@ const IconSend = () => (
   </svg>
 )
 
-const MOCK_RESULTS = [
-  { id: 1, name: 'Central Park', type: 'Park', dist: '0.3 km' },
-  { id: 2, name: 'Times Square', type: 'Landmark', dist: '1.2 km' },
-  { id: 3, name: 'Brooklyn Bridge', type: 'Bridge', dist: '3.4 km' },
-  { id: 4, name: 'Grand Central', type: 'Station', dist: '0.8 km' },
-  { id: 5, name: 'The High Line', type: 'Park', dist: '2.1 km' },
-]
-
 const MOCK_CHAT = [
-  { role: 'ai', text: 'Hi! I\'m BTrack AI. Ask me anything about your tracked locations.' },
+  { role: 'ai', text: 'Hey! I\'m BTrack. Ask me about your day, get place recommendations, or just see what patterns show up in your travels.' },
 ]
 
 function RecCard({ rec, outside }) {
@@ -100,14 +85,125 @@ function renderMarkdown(text) {
 }
 
 
+const IconHeart = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+  </svg>
+)
+const IconComment = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </svg>
+)
+const IconShare = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+  </svg>
+)
+const IconBookmark = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+  </svg>
+)
+const IconCopy = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+)
+const IconClose = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+)
+
+function InstagramModal({ onClose, analysis }) {
+  const [caption, setCaption] = useState('')
+  const [captionLoading, setCaptionLoading] = useState(true)
+  const [captionError, setCaptionError] = useState(null)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    setCaptionLoading(true)
+    setCaptionError(null)
+    generateInstagramCaption(analysis)
+      .then(setCaption)
+      .catch(e => setCaptionError(e.message))
+      .finally(() => setCaptionLoading(false))
+  }, [])
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(caption)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="ig-backdrop" onClick={onClose}>
+      <div className="ig-modal" onClick={e => e.stopPropagation()}>
+        <div className="ig-topbar">
+          <span className="ig-topbar-title">Instagram preview</span>
+          <button className="ig-close" onClick={onClose}><IconClose /></button>
+        </div>
+        <div className="ig-header">
+          <div className="ig-avatar">
+            <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+              <circle cx="16" cy="16" r="14" stroke="#CC1111" strokeWidth="2.5" />
+              <circle cx="16" cy="16" r="5" fill="#CC1111" />
+              <path d="M16 4 Q21 10 16 16 Q11 10 16 4Z" fill="#CC1111" opacity="0.45" />
+            </svg>
+          </div>
+          <div className="ig-header-info">
+            <span className="ig-username">btrack_app</span>
+            <span className="ig-location">Your City · Today</span>
+          </div>
+          <button className="ig-follow-btn">Follow</button>
+        </div>
+        <div className="ig-image">
+          <div className="ig-image-inner">
+            <svg width="48" height="48" viewBox="0 0 32 32" fill="none" opacity="0.35">
+              <circle cx="16" cy="16" r="14" stroke="white" strokeWidth="2.5" />
+              <circle cx="16" cy="16" r="5" fill="white" />
+              <path d="M16 4 Q21 10 16 16 Q11 10 16 4Z" fill="white" opacity="0.6" />
+            </svg>
+            <span className="ig-image-label">BTrack · Map Preview</span>
+          </div>
+        </div>
+        <div className="ig-actions">
+          <div className="ig-actions-left">
+            <button className="ig-icon-btn"><IconHeart /></button>
+            <button className="ig-icon-btn"><IconComment /></button>
+            <button className="ig-icon-btn"><IconShare /></button>
+          </div>
+          <button className="ig-icon-btn"><IconBookmark /></button>
+        </div>
+        <div className="ig-likes">1,284 likes</div>
+        <div className="ig-caption-block">
+          <div className="ig-caption-header">
+            <span className="ig-caption-label">AI-generated caption</span>
+            {!captionLoading && !captionError && (
+              <button className={`ig-copy-btn ${copied ? 'ig-copy-btn-done' : ''}`} onClick={handleCopy} disabled={!caption}>
+                <IconCopy />{copied ? 'Copied!' : 'Copy'}
+              </button>
+            )}
+          </div>
+          {captionLoading && <div className="ig-caption-loading"><div className="analysis-spinner" />Generating caption…</div>}
+          {captionError && <p className="ig-caption-error">{captionError}</p>}
+          {!captionLoading && !captionError && <p className="ig-caption">{caption}</p>}
+        </div>
+        <div className="ig-date">Today</div>
+      </div>
+    </div>
+  )
+}
+
 export default function MainPage({ onLogout, palIdR }) {
   const [logs, setLogs] = useState([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [logsError, setLogsError] = useState(null)
   const [trajectory, setTrajectory] = useState([])
   const [mainView, setMainView] = useState('map')
-  const [panel, setPanel] = useState(null) // 'search' | 'ai' | null
-  const [searchQuery, setSearchQuery] = useState('')
+  const [panel, setPanel] = useState(null) // 'ai' | null
   const [chatMessages, setChatMessages] = useState(MOCK_CHAT)
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
@@ -115,15 +211,14 @@ export default function MainPage({ onLogout, palIdR }) {
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState(null)
   const [analysisTab, setAnalysisTab] = useState('overview')
+  const [igOpen, setIgOpen] = useState(false)
+  const today = new Date().toISOString().slice(0, 10)
+  const [dateFrom, setDateFrom] = useState(today)
+  const [dateTo, setDateTo] = useState(today)
   const [recommendations, setRecommendations] = useState(null)
   const [recsLoading, setRecsLoading] = useState(false)
   const [recsError, setRecsError] = useState(null)
   const chatEndRef = useRef(null)
-
-  const filteredResults = MOCK_RESULTS.filter(r =>
-    r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.type.toLowerCase().includes(searchQuery.toLowerCase())
-  )
 
   const togglePanel = (name) => {
     setPanel(prev => prev === name ? null : name)
@@ -174,21 +269,27 @@ export default function MainPage({ onLogout, palIdR }) {
   useEffect(() => {
     if (!palIdR) return
     let mounted = true
-    setLogsLoading(true)
-    setLogsError(null)
-    Promise.all([getEvents(palIdR), getTrajectory(palIdR)])
-      .then(([eventsData, trajData]) => {
-        if (!mounted) return
-        setLogs(eventsData.events ?? [])
-        setTrajectory(trajData.trajectory ?? [])
-      })
-      .catch(e => { if (!mounted) return; setLogsError(e.message) })
-      .finally(() => { if (!mounted) return; setLogsLoading(false) })
-    return () => { mounted = false }
+
+    const fetchData = (initial = false) => {
+      if (initial) { setLogsLoading(true); setLogsError(null) }
+      Promise.all([getEvents(palIdR), getTrajectory(palIdR)])
+        .then(([eventsData, trajData]) => {
+          if (!mounted) return
+          setLogs(eventsData.events ?? [])
+          setTrajectory(trajData.trajectory ?? [])
+        })
+        .catch(e => { if (!mounted) return; setLogsError(e.message) })
+        .finally(() => { if (!mounted) return; setLogsLoading(false) })
+    }
+
+    fetchData(true)
+    const interval = setInterval(() => fetchData(false), 5000)
+    return () => { mounted = false; clearInterval(interval) }
   }, [palIdR])
 
   return (
     <div className="main-layout">
+      {igOpen && <InstagramModal onClose={() => setIgOpen(false)} analysis={analysis} />}
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-top">
@@ -201,15 +302,6 @@ export default function MainPage({ onLogout, palIdR }) {
           </div>
 
           <nav className="sidebar-nav">
-            <button
-              className={`nav-btn ${panel === 'search' ? 'nav-btn-active' : ''}`}
-              onClick={() => togglePanel('search')}
-              title="Search"
-            >
-              <IconSearch />
-              <span>Search</span>
-            </button>
-
             <button
               className={`nav-btn ${mainView === 'map' ? 'nav-btn-active' : ''}`}
               onClick={() => setMainView('map')}
@@ -249,39 +341,6 @@ export default function MainPage({ onLogout, palIdR }) {
 
       {/* Side panel */}
       <div className={`side-panel ${panel ? 'side-panel-open' : ''}`}>
-        {panel === 'search' && (
-          <div className="panel-inner" key="search">
-            <p className="panel-label">Search places</p>
-            <div className="search-input-wrap">
-              <IconSearch />
-              <input
-                type="text"
-                placeholder="Search by place, type…"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="search-results">
-              {searchQuery === '' ? (
-                <p className="panel-hint">Start typing to find places</p>
-              ) : filteredResults.length === 0 ? (
-                <p className="panel-hint">No results found</p>
-              ) : (
-                filteredResults.map(r => (
-                  <div key={r.id} className="search-result-item">
-                    <div className="result-dot" />
-                    <div className="result-info">
-                      <span className="result-name">{r.name}</span>
-                      <span className="result-meta">{r.type} · {r.dist}</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
         {panel === 'ai' && (
           <div className="panel-inner ai-panel-inner" key="ai">
             <p className="panel-label">BTrack AI</p>
@@ -322,8 +381,16 @@ export default function MainPage({ onLogout, palIdR }) {
         ) : (
           <div className="analysis-view" key="analysis">
             <div className="analysis-header">
-              <h2>Analysis Dashboard</h2>
-              <p>Your location activity at a glance · {logs.length} events logged</p>
+              <div className="analysis-header-top">
+                <h2>Analysis Dashboard</h2>
+                <p>Your location activity at a glance · {logs.length} events logged</p>
+              </div>
+              <div className="analysis-date-range">
+                <label>From</label>
+                <input type="date" value={dateFrom} max={dateTo} onChange={e => setDateFrom(e.target.value)} />
+                <label>To</label>
+                <input type="date" value={dateTo} min={dateFrom} max={today} onChange={e => setDateTo(e.target.value)} />
+              </div>
             </div>
 
             <div className="analysis-tab-row">
@@ -355,7 +422,7 @@ export default function MainPage({ onLogout, palIdR }) {
                     <div className="analysis-stats-row">
                       <div className="stat-card-solo-inner">
                         <span className="stat-value-big">{analysis.timeTracked}</span>
-                        <span className="stat-label-big">Time tracked yesterday</span>
+                        <span className="stat-label-big">Time tracked today</span>
                         <div className="stat-bar-wide">
                           <div className="stat-bar-fill-wide" style={{ width: `${Math.min(100, (analysis.movingTimeMinutes / (analysis.movingTimeMinutes + analysis.stationaryTimeMinutes)) * 100 + 20)}%` }} />
                         </div>
@@ -444,6 +511,17 @@ export default function MainPage({ onLogout, palIdR }) {
                 )}
               </>
             )}
+
+            <div className="analysis-footer">
+              <button className="btn-generate-ig" onClick={() => setIgOpen(true)} disabled={!analysis}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+                  <circle cx="12" cy="12" r="4" />
+                  <circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none" />
+                </svg>
+                Generate Instagram post
+              </button>
+            </div>
 
           </div>
         )}
