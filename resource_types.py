@@ -1,6 +1,12 @@
 from pydantic import BaseModel
 
+class LocationBitter(BaseModel):
+    longitude: float
+    latitude: float
+    time: int
+
 class LocationRaw(BaseModel):
+    number: int
     pal_id_r: str
     longitude: float
     latitude: float

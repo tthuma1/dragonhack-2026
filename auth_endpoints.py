@@ -16,14 +16,14 @@ router = APIRouter(
 
 
 def generate_pal_id_r() -> str:
-    existing = [user.pal_id_r for user in get_all_users()]
+    existing = [user["pal_id_r"] for user in get_all_users()]
     while True:
         candidate = secrets.token_hex(8)
         if candidate not in existing:
             return candidate
 
 
-def get_all_users() -> list[SignJsonLog]:
+def get_all_users() -> list[dict]:
     if not os.path.isfile("users.json"):
         return []
     with open("users.json", "r") as f:
@@ -32,18 +32,17 @@ def get_all_users() -> list[SignJsonLog]:
 
 def add_user(username: str, email: str, hashed_pwd: str, pal_id_r: str):
     users = get_all_users()
-    users.append(SignJsonLog(username=username, email=email, password=hashed_pwd, pal_id_r=pal_id_r))
+    users.append(SignJsonLog(username=username, email=email, password=hashed_pwd, pal_id_r=pal_id_r).model_dump())
     with open("users.json", "w") as f:
         json.dump(users, f)
 
 
 def user_signin_check(username: str, passwd: str) -> bool:
     user_list = get_all_users()
-    user_entry = next((u for u in user_list if u.username == username), None)
+    user_entry = next((user for user in user_list if user["username"] == username), None)
     if user_entry is None:
         return False
-    return bcrypt.checkpw(passwd.encode(), user_entry.password.encode())
-
+    return bcrypt.checkpw(passwd.encode(), user_entry["password"].encode())
 
 @router.post("/sign_up", response_model=ResponseCheck)
 def signing_up(request: SignUpRequest):
@@ -51,9 +50,9 @@ def signing_up(request: SignUpRequest):
         raise HTTPException(status_code=400, detail="Passwords do not match")
 
     user_list = get_all_users()
-    if any(user.username == request.username for user in user_list):
+    if any(user["username"] == request.username for user in user_list):
         raise HTTPException(status_code=409, detail="Username already taken")
-    if any(user.email == request.email for user in user_list):
+    if any(user["email"] == request.email for user in user_list):
         raise HTTPException(status_code=409, detail="Email already registered")
 
     hashed_pwd = bcrypt.hashpw(request.password.encode(), bcrypt.gensalt()).decode()
@@ -69,11 +68,11 @@ def signing_in(request: SignInRequest):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user_list = get_all_users()
-    user_entry = next(user for user in user_list if user.username == request.username)
+    user_entry = next(user for user in user_list if user["username"] == request.username)
 
     token = secrets.token_hex(32)
-    _sessions[token] = user_entry.pal_id_r
-    return SignInResponse(status="Success", token=token, pal_id_r=user_entry.pal_id_r)
+    _sessions[token] = user_entry["pal_id_r"]
+    return SignInResponse(status="Success", token=token, pal_id_r=user_entry["pal_id_r"])
 
 
 @router.post("/sign_out", response_model=ResponseCheck)

@@ -1,9 +1,10 @@
+import os.path
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
 import json
-from resource_types import LocationRaw, ResponseCheck
-from datapoint_endpoints import detect_stops_dbscan
+from resource_types import LocationRaw, ResponseCheck, LocationBitter
+from datapoint_endpoints import detect_stops_dbscan, generate_stops
 
 router = APIRouter(
     prefix="/location",
@@ -11,17 +12,25 @@ router = APIRouter(
 )
 
 def get_all_events(target_id: str)->list:
+    if not os.path.isfile(f'events/{target_id}.json'):
+        return []
+
     data = []
     with open(f'events/{target_id}.json', 'r') as f:
         for line in f:
-            data.append(json.loads(line))
+            json_data = json.loads(line)
+            data.extend(json_data)
     return data
 
 def get_all_points(target_id: str)->list:
+    if not os.path.isfile(f'trajectory/{target_id}.json'):
+        return []
+
     data = []
     with open(f'trajectory/{target_id}.json', 'r') as f:
         for line in f:
-            data.append(json.loads(line))
+            json_data = json.loads(line)
+            data.append(json_data)
     return data
 
 @router.get("/events/{user_id}")
@@ -38,8 +47,11 @@ def trajectory_responder(user_id: str):
 def location_upload(request: LocationRaw):
     status: ResponseCheck = ResponseCheck(status="Failure")
     try:
-        with open(f'{request.pal_id_r}.json', 'a') as f:
-            f.write(json.dumps({"time": request.time, "lang": request.latitude, "long": request.longitude}))
+        with open(f'logs/{request.pal_id_r}.json', 'a') as f:
+            f.write(f'{json.dumps({"time": request.time, "latitude": request.latitude, "longitude": request.longitude})}\n')
+        if request.number % 4 == 0:
+            with open(f'trajectory/{request.pal_id_r}.json', 'a') as f:
+                f.write(f'{json.dumps({"time": request.time, "latitude": request.latitude, "longitude": request.longitude})}\n')
         all_locations = get_all_points(request.pal_id_r)
         if len(all_locations) >= 80:
 
