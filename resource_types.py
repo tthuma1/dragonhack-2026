@@ -1,5 +1,13 @@
 from pydantic import BaseModel
 
+class TrajectoryResponse(BaseModel):
+    count: int
+    trajectory: list[dict]
+
+class EventResponse(BaseModel):
+    count: int
+    events: list[dict]
+
 class LocationBitter(BaseModel):
     longitude: float
     latitude: float
